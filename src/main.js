@@ -25,9 +25,81 @@ for (const child of [...domeRoot.children]) { if (child!==floor && child!==floor
 domeRoot.add(proceduralShell);
 const baseRing=new THREE.Mesh(new THREE.TorusGeometry(radius,.065,10,120),metal);baseRing.rotation.x=Math.PI/2;domeRoot.add(baseRing);
 const edgeLights=new THREE.PointLight(0x4ce6f4,25,17);edgeLights.position.set(0,3,0);domeRoot.add(edgeLights);
-const inside=new THREE.Group();domeRoot.add(inside);
+
+//1.3 version update: Added interior mode switching and environment switching. The interior is now a separate group, and the procedural shell is hidden when the Blender model is loaded. The camera controls have been refined for better user experience, especially on mobile devices with motion controls.
+// 原有的程序生成室内家具
+const inside = new THREE.Group();
+domeRoot.add(inside);
+
+// Blender 导入的正式客厅
+let livingRoom = null;
+
+// 记录当前室内模式
+let currentInteriorMode = 'LIVING';
+
+
 function box(w,h,d,x,y,z,color){const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),new THREE.MeshStandardMaterial({color,metalness:.18,roughness:.66}));m.position.set(x,y,z);inside.add(m);return m}
-function makeInterior(mode){inside.clear();if(mode==='LIVING'){box(2.7,.55,1.05,-1.3,.38,-1.25,0x7c9fa5);box(2.7,.8,.25,-1.3,.82,-1.65,0x7c9fa5);box(1,.28,.75,-1,.35,.45,0x47717a);box(1.2,.12,1.2,1.65,.4,-.9,0x759e9e)}else if(mode==='GARDEN'){for(let i=0;i<12;i++){let a=i*2.4;const x=Math.cos(a)*(.8+i*.19),z=Math.sin(a)*(.8+i*.19);box(.48,.35,.48,x,.2,z,0x467b6d);const p=new THREE.Mesh(new THREE.ConeGeometry(.3,.7,7),new THREE.MeshStandardMaterial({color:0x51c49b}));p.position.set(x,.75,z);inside.add(p)}}else if(mode==='FITNESS'){for(let i=0;i<4;i++)box(.65,.07,1.7,-2+i*1.3,.08,0,0x4086a3);box(2,.12,.3,0,.85,-1.8,0x8faab4)}else{for(let i=0;i<4;i++){const m=box(.12,1.9,1.5,-2+i*1.3,1.05,-1.5,0x4e91a4);m.material.emissive=new THREE.Color(0x16465b)}}}
+
+
+//1.3版本更新：增加了室内模式切换和环境切换。室内家具现在是一个单独的组，当Blender模型加载时，程序生成的壳体会被隐藏。相机控制进行了优化，以提供更好的用户体验，尤其是在移动设备上使用运动控制时。
+// 根据模式生成室内家具
+function makeInterior(mode) {
+  currentInteriorMode = mode;
+
+  // 清除原来的程序生成家具
+  inside.clear();
+
+  // 正式 LivingRoom 只在 LIVING 模式显示
+  if (livingRoom) {
+    livingRoom.visible = mode === 'LIVING';
+  }
+
+  // LIVING 使用 Blender 模型，不再生成蓝色占位家具
+  if (mode === 'LIVING') {
+    return;
+  }
+
+  if (mode === 'GARDEN') {
+    for (let i = 0; i < 12; i++) {
+      const a = i * 2.4;
+      const x = Math.cos(a) * (0.8 + i * 0.19);
+      const z = Math.sin(a) * (0.8 + i * 0.19);
+
+      box(0.48, 0.35, 0.48, x, 0.2, z, 0x467b6d);
+
+      const plant = new THREE.Mesh(
+        new THREE.ConeGeometry(0.3, 0.7, 7),
+        new THREE.MeshStandardMaterial({ color: 0x51c49b })
+      );
+
+      plant.position.set(x, 0.75, z);
+      inside.add(plant);
+    }
+  }
+
+  else if (mode === 'FITNESS') {
+    for (let i = 0; i < 4; i++) {
+      box(0.65, 0.07, 1.7, -2 + i * 1.3, 0.08, 0, 0x4086a3);
+    }
+
+    box(2, 0.12, 0.3, 0, 0.85, -1.8, 0x8faab4);
+  }
+
+  else if (mode === 'EXHIBITION') {
+    for (let i = 0; i < 4; i++) {
+      const panel = box(
+        0.12, 1.9, 1.5,
+        -2 + i * 1.3, 1.05, -1.5,
+        0x4e91a4
+      );
+
+      panel.material.emissive = new THREE.Color(0x16465b);
+    }
+  }
+}
+
+
+
 makeInterior('LIVING');
 const stars=new THREE.BufferGeometry();const pts=[];for(let i=0;i<900;i++)pts.push((Math.random()-.5)*150,Math.random()*65-5,(Math.random()-.5)*150);stars.setAttribute('position',new THREE.Float32BufferAttribute(pts,3));scene.add(new THREE.Points(stars,new THREE.PointsMaterial({color:0x77a7b4,size:.045,transparent:true,opacity:.6})));
 function clearEnvironment(){while(environment.children.length){const m=environment.children[0];environment.remove(m);m.geometry?.dispose();if(m.material){(Array.isArray(m.material)?m.material:[m.material]).forEach(v=>v.dispose())}}}
@@ -54,6 +126,54 @@ function gyroRotation(){if(!gyroEnabled||!deviceAngles)return null;const {alpha,
 function updateCamera(now){if(transition){const u=Math.min(1,(now-transition.start)/transition.duration);const k=u<.5?4*u*u*u:1-Math.pow(-2*u+2,3)/2;camera.position.lerpVectors(transition.fromP,transition.toP,k);orbit.target.lerpVectors(transition.fromT,transition.toT,k);camera.lookAt(orbit.target);if(u>=1){transition=null;gyroBase=null;if(view==='applications'||view==='structure'){orbit.enabled=true;orbit.target.copy(new THREE.Vector3(...targets[view].t));orbit.minDistance=view==='structure'?4:7;orbit.maxDistance=view==='structure'?16:40}else orbit.enabled=false;if(view==='interior'){interiorYaw=0;interiorPitch=0}}return}if(view==='home'){orbit.enabled=false;camera.lookAt(0,1.7,0);return}if(view==='interior'){const base=new THREE.Quaternion().setFromEuler(new THREE.Euler(interiorPitch,interiorYaw,0,'YXZ'));const g=gyroRotation();if(g)base.multiply(g);camera.quaternion.copy(base)}else{orbit.update();if(view==='applications'&&gyroEnabled&&deviceAngles){const g=gyroRotation();if(g){const e=new THREE.Euler().setFromQuaternion(g,'YXZ');const desired=THREE.MathUtils.clamp(e.y,-.6,.6);const delta=desired-gyroOrbitOffset;camera.position.sub(orbit.target).applyAxisAngle(new THREE.Vector3(0,1,0),delta*.12).add(orbit.target);gyroOrbitOffset+=delta*.12;camera.lookAt(orbit.target)}}}}
 function render(now){requestAnimationFrame(render);updateCamera(now);if(view==='home'&&!transition){const scroll=Math.min(1,scrollY/Math.max(1,innerHeight));camera.position.set(11+scroll*3,6+scroll*2,16+scroll*4);camera.lookAt(0,1.7,0)}renderer.render(scene,camera)}requestAnimationFrame(render);
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+
+
+
+//1.3版本更新：增加了室内模式切换和环境切换。室内家具现在是一个单独的组，当Blender模型加载时，程序生成的壳体会被隐藏。相机控制进行了优化，以提供更好的用户体验，尤其是在移动设备上使用运动控制时。
+//
+// LivingRoom GLB Model
+//
+
+async function loadLivingRoom() {
+
+  const loader = new GLTFLoader();
+
+  try {
+
+    const gltf = await loader.loadAsync(
+      './public/models/LivingRoom.glb'
+    );
+
+    livingRoom = gltf.scene;
+    livingRoom.name = 'LivingRoom';
+
+    // 保留 Blender 导出时的原始位置与比例
+    livingRoom.position.set(0, 0, 0);
+    livingRoom.scale.set(1, 1, 1);
+
+    livingRoom.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    // 添加到半球体所在的坐标系统
+    domeRoot.add(livingRoom);
+
+    // 只在 LIVING 模式显示
+    livingRoom.visible =
+      currentInteriorMode === 'LIVING';
+
+    console.log('LivingRoom loaded successfully');
+
+  } catch (error) {
+
+    console.error('Failed to load LivingRoom:', error);
+
+  }
+}
+
 
 
 // Blender model integration. All three meshes remain independent for later interactions.
@@ -89,4 +209,10 @@ export async function loadDomeGLB(url='./public/models/adaptive-dome.glb') {
   return model;
 }
 loadDomeGLB().catch(err=>{console.error('Could not load Blender dome:',err);toast('GLB load failed. Showing procedural fallback dome.')});
+
+
+//1.3version
+loadLivingRoom();
+
+
 window.ADAPT_DEBUG={scene,camera,domeRoot,setView,loadDomeGLB};
