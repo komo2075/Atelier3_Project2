@@ -54,8 +54,10 @@ function gyroRotation(){if(!gyroEnabled||!deviceAngles)return null;const {alpha,
 function updateCamera(now){if(transition){const u=Math.min(1,(now-transition.start)/transition.duration);const k=u<.5?4*u*u*u:1-Math.pow(-2*u+2,3)/2;camera.position.lerpVectors(transition.fromP,transition.toP,k);orbit.target.lerpVectors(transition.fromT,transition.toT,k);camera.lookAt(orbit.target);if(u>=1){transition=null;gyroBase=null;if(view==='applications'||view==='structure'){orbit.enabled=true;orbit.target.copy(new THREE.Vector3(...targets[view].t));orbit.minDistance=view==='structure'?4:7;orbit.maxDistance=view==='structure'?16:40}else orbit.enabled=false;if(view==='interior'){interiorYaw=0;interiorPitch=0}}return}if(view==='home'){orbit.enabled=false;camera.lookAt(0,1.7,0);return}if(view==='interior'){const base=new THREE.Quaternion().setFromEuler(new THREE.Euler(interiorPitch,interiorYaw,0,'YXZ'));const g=gyroRotation();if(g)base.multiply(g);camera.quaternion.copy(base)}else{orbit.update();if(view==='applications'&&gyroEnabled&&deviceAngles){const g=gyroRotation();if(g){const e=new THREE.Euler().setFromQuaternion(g,'YXZ');const desired=THREE.MathUtils.clamp(e.y,-.6,.6);const delta=desired-gyroOrbitOffset;camera.position.sub(orbit.target).applyAxisAngle(new THREE.Vector3(0,1,0),delta*.12).add(orbit.target);gyroOrbitOffset+=delta*.12;camera.lookAt(orbit.target)}}}}
 function render(now){requestAnimationFrame(render);updateCamera(now);if(view==='home'&&!transition){const scroll=Math.min(1,scrollY/Math.max(1,innerHeight));camera.position.set(11+scroll*3,6+scroll*2,16+scroll*4);camera.lookAt(0,1.7,0)}renderer.render(scene,camera)}requestAnimationFrame(render);
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+
+
 // Blender model integration. All three meshes remain independent for later interactions.
-export async function loadDomeGLB(url='/models/adaptive-dome.glb') {
+export async function loadDomeGLB(url='./public/models/adaptive-dome.glb') {
   const gltf=await new GLTFLoader().loadAsync(url);
   const model=gltf.scene;
   // The supplied model is already ~10m wide and Y-up, but normalize future replacements.
