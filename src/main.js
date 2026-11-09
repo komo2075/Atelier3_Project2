@@ -10,7 +10,7 @@ const scene=new THREE.Scene(); scene.background=new THREE.Color('#07121d');scene
 const camera=new THREE.PerspectiveCamera(53,innerWidth/innerHeight,.035,300);camera.position.set(10,6,15);
 scene.add(new THREE.HemisphereLight(0xbcecff,0x132636,2.3));const sun=new THREE.DirectionalLight(0xb5f6ff,3);sun.position.set(8,14,7);scene.add(sun);
 const domeRoot=new THREE.Group();scene.add(domeRoot);const environment=new THREE.Group();scene.add(environment);
-const radius=5; const panelMeshes=[];
+const radius=5; const panelMeshes=[]; let importedDome=null; let importedPanels=null;
 const glass=new THREE.MeshPhysicalMaterial({color:0x70c9dc,metalness:.12,roughness:.19,transparent:true,opacity:.17,side:THREE.DoubleSide,depthWrite:false});
 const rimMat=new THREE.MeshBasicMaterial({color:0x74e6ec,transparent:true,opacity:.8,side:THREE.DoubleSide});
 const metal=new THREE.MeshStandardMaterial({color:0x164452,metalness:.75,roughness:.28});
@@ -19,6 +19,10 @@ const floorRings=new THREE.GridHelper(10,20,0x31747d,0x18404a);floorRings.positi
 // A hemisphere of spherical hexagonal cells. The caps near the top are intentionally stylized.
 function addCell(theta,phi,sz,index){const center=new THREE.Vector3(radius*Math.sin(theta)*Math.cos(phi),radius*Math.cos(theta),radius*Math.sin(theta)*Math.sin(phi));const n=center.clone().normalize();const tangent=new THREE.Vector3(-Math.sin(phi),0,Math.cos(phi));const bitangent=new THREE.Vector3().crossVectors(n,tangent).normalize();const verts=[];for(let i=0;i<6;i++){const a=i*Math.PI/3+Math.PI/6;const p=center.clone().addScaledVector(tangent,Math.cos(a)*sz).addScaledVector(bitangent,Math.sin(a)*sz).normalize().multiplyScalar(radius);verts.push(p)}const positions=[];for(let i=0;i<6;i++)positions.push(...center.toArray(),...verts[i].toArray(),...verts[(i+1)%6].toArray());const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));g.computeVertexNormals();const mesh=new THREE.Mesh(g,glass.clone());mesh.userData={panel:index,center:center.clone(),normal:n.clone()};domeRoot.add(mesh);panelMeshes.push(mesh);const outline=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(verts),new THREE.LineBasicMaterial({color:0x75dce7,transparent:true,opacity:.67}));domeRoot.add(outline)}
 let index=0;for(let row=0;row<8;row++){const theta=.14+row*.192;const count=Math.max(6,Math.round(2*Math.PI*Math.sin(theta)*radius/1.38));for(let i=0;i<count;i++)addCell(theta,(i+(row%2)*.5)*Math.PI*2/count,Math.min(.71,Math.PI*radius*Math.sin(theta)/count*.83),index++)}
+const proceduralShell=new THREE.Group();
+// The procedural shell remains as an offline fallback.
+for (const child of [...domeRoot.children]) { if (child!==floor && child!==floorRings) proceduralShell.add(child); }
+domeRoot.add(proceduralShell);
 const baseRing=new THREE.Mesh(new THREE.TorusGeometry(radius,.065,10,120),metal);baseRing.rotation.x=Math.PI/2;domeRoot.add(baseRing);
 const edgeLights=new THREE.PointLight(0x4ce6f4,25,17);edgeLights.position.set(0,3,0);domeRoot.add(edgeLights);
 const inside=new THREE.Group();domeRoot.add(inside);
@@ -42,7 +46,7 @@ const panelInfo={SOLAR:'Photovoltaic panels may help generate electricity when s
 function showPanel(name){$('panel-title').textContent=name;$('panel-desc').textContent=panelInfo[name];$('panel').hidden=false}
 $('panel-close').onclick=()=>$('panel').hidden=true;
 document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));$('home').onclick=()=>{setView('home');window.scrollTo(0,0)};$('brand').onclick=()=>{setView('home');window.scrollTo(0,0)};
-const raycaster=new THREE.Raycaster();const pointer=new THREE.Vector2();canvas.addEventListener('click',e=>{if(view!=='structure'||transition)return;pointer.set(e.clientX/innerWidth*2-1,-e.clientY/innerHeight*2+1);raycaster.setFromCamera(pointer,camera);const hit=raycaster.intersectObjects(panelMeshes)[0];if(hit){const names=actions.structure;showPanel(names[hit.object.userData.panel%names.length])}});
+const raycaster=new THREE.Raycaster();const pointer=new THREE.Vector2();canvas.addEventListener('click',e=>{if(view!=='structure'||transition)return;pointer.set(e.clientX/innerWidth*2-1,-e.clientY/innerHeight*2+1);raycaster.setFromCamera(pointer,camera);const targetsForClick=importedPanels?[importedPanels]:panelMeshes;const hit=raycaster.intersectObjects(targetsForClick,true)[0];if(hit){const names=actions.structure;const index=importedPanels ? (hit.faceIndex??0) : hit.object.userData.panel;showPanel(names[index%names.length])}});
 canvas.addEventListener('pointerdown',e=>{if(view!=='interior'||transition)return;dragging=true;lastPointer=[e.clientX,e.clientY];canvas.setPointerCapture(e.pointerId)});canvas.addEventListener('pointermove',e=>{if(!dragging||view!=='interior'||transition||!lastPointer)return;interiorYaw-=(e.clientX-lastPointer[0])*.004;interiorPitch=THREE.MathUtils.clamp(interiorPitch-(e.clientY-lastPointer[1])*.004,-1.2,1.2);lastPointer=[e.clientX,e.clientY]});canvas.addEventListener('pointerup',()=>{dragging=false;lastPointer=null});canvas.addEventListener('pointercancel',()=>{dragging=false;lastPointer=null});
 $('gyro').onclick=async()=>{if(gyroEnabled){gyroEnabled=false;gyroBase=null;$('gyro').textContent='ENABLE MOTION';toast('Motion control disabled');return}if(typeof DeviceOrientationEvent==='undefined'){toast('Device orientation is not available in this browser');return}try{if(typeof DeviceOrientationEvent.requestPermission==='function'){const permission=await DeviceOrientationEvent.requestPermission();if(permission!=='granted'){toast('Motion permission was not granted');return}}gyroEnabled=true;gyroBase=null;$('gyro').textContent='MOTION ON';toast('Motion enabled. Rotate the phone to look around.')}catch(e){toast('Motion permission failed: '+e.message)}};
 window.addEventListener('deviceorientation',e=>{if(e.alpha===null||e.beta===null||e.gamma===null)return;deviceAngles={alpha:e.alpha,beta:e.beta,gamma:e.gamma};});
@@ -50,6 +54,37 @@ function gyroRotation(){if(!gyroEnabled||!deviceAngles)return null;const {alpha,
 function updateCamera(now){if(transition){const u=Math.min(1,(now-transition.start)/transition.duration);const k=u<.5?4*u*u*u:1-Math.pow(-2*u+2,3)/2;camera.position.lerpVectors(transition.fromP,transition.toP,k);orbit.target.lerpVectors(transition.fromT,transition.toT,k);camera.lookAt(orbit.target);if(u>=1){transition=null;gyroBase=null;if(view==='applications'||view==='structure'){orbit.enabled=true;orbit.target.copy(new THREE.Vector3(...targets[view].t));orbit.minDistance=view==='structure'?4:7;orbit.maxDistance=view==='structure'?16:40}else orbit.enabled=false;if(view==='interior'){interiorYaw=0;interiorPitch=0}}return}if(view==='home'){orbit.enabled=false;camera.lookAt(0,1.7,0);return}if(view==='interior'){const base=new THREE.Quaternion().setFromEuler(new THREE.Euler(interiorPitch,interiorYaw,0,'YXZ'));const g=gyroRotation();if(g)base.multiply(g);camera.quaternion.copy(base)}else{orbit.update();if(view==='applications'&&gyroEnabled&&deviceAngles){const g=gyroRotation();if(g){const e=new THREE.Euler().setFromQuaternion(g,'YXZ');const desired=THREE.MathUtils.clamp(e.y,-.6,.6);const delta=desired-gyroOrbitOffset;camera.position.sub(orbit.target).applyAxisAngle(new THREE.Vector3(0,1,0),delta*.12).add(orbit.target);gyroOrbitOffset+=delta*.12;camera.lookAt(orbit.target)}}}}
 function render(now){requestAnimationFrame(render);updateCamera(now);if(view==='home'&&!transition){const scroll=Math.min(1,scrollY/Math.max(1,innerHeight));camera.position.set(11+scroll*3,6+scroll*2,16+scroll*4);camera.lookAt(0,1.7,0)}renderer.render(scene,camera)}requestAnimationFrame(render);
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
-// Future asset integration: use loadDomeGLB('/models/dome.glb') after exporting a Blender model.
-export async function loadDomeGLB(url){const gltf=await new GLTFLoader().loadAsync(url);domeRoot.visible=false;scene.add(gltf.scene);return gltf.scene}
+// Blender model integration. All three meshes remain independent for later interactions.
+export async function loadDomeGLB(url='/models/adaptive-dome.glb') {
+  const gltf=await new GLTFLoader().loadAsync(url);
+  const model=gltf.scene;
+  // The supplied model is already ~10m wide and Y-up, but normalize future replacements.
+  const bounds=new THREE.Box3().setFromObject(model);
+  const size=bounds.getSize(new THREE.Vector3());
+  if (size.x<0.01 || size.y<0.01 || size.z<0.01) throw new Error('Empty model bounds');
+  const scale=10/Math.max(size.x,size.z);
+  model.scale.setScalar(scale);
+  const normalized=new THREE.Box3().setFromObject(model);
+  const center=normalized.getCenter(new THREE.Vector3());
+  model.position.set(-center.x,-normalized.min.y,-center.z);
+  model.traverse(object=>{
+    if (!object.isMesh) return;
+    const name=object.name.toLowerCase();
+    if (name.includes('panels')) {
+      importedPanels=object;
+      object.material=new THREE.MeshPhysicalMaterial({color:0x9bdce6,metalness:0,roughness:.13,transmission:.78,thickness:.025,transparent:true,opacity:.45,side:THREE.DoubleSide,depthWrite:false});
+    } else if (name.includes('frame')) {
+      object.material=new THREE.MeshStandardMaterial({color:0x538b9b,metalness:.7,roughness:.27,side:THREE.DoubleSide});
+    }
+  });
+  if(importedDome) domeRoot.remove(importedDome);
+  importedDome=model;
+  domeRoot.add(model);
+  proceduralShell.visible=false;
+  floor.visible=false;
+  floorRings.visible=false;
+  baseRing.visible=false;
+  return model;
+}
+loadDomeGLB().catch(err=>{console.error('Could not load Blender dome:',err);toast('GLB load failed. Showing procedural fallback dome.')});
 window.ADAPT_DEBUG={scene,camera,domeRoot,setView,loadDomeGLB};
